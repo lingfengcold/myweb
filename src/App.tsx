@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Trie } from './lib/trie';
 import { solveGrid, FoundWord, Coordinate } from './lib/solver';
 import { clsx } from 'clsx';
@@ -52,7 +52,7 @@ export default function App() {
           'https://raw.githubusercontent.com/dolph/dictionary/master/enable1.txt'
         ];
         
-        const responses = await Promise.all(urls.map(url => fetch(url).catch(_ => null))); // Try both, ignore failures if one succeeds
+        const responses = await Promise.all(urls.map(url => fetch(url).catch(() => null))); // Try both, ignore failures if one succeeds
         
         const t = new Trie();
         let loadedAny = false;
@@ -100,7 +100,7 @@ export default function App() {
   const getStepColor = (stepIndex: number) => STEP_COLORS[stepIndex % STEP_COLORS.length];
 
   // Solver
-  const runSolver = () => {
+  const runSolver = useCallback(() => {
     if (!trie) return;
     // Create a temporary grid that respects usedCells
     const tempGrid = grid.map((row, r) => row.map((char, c) => {
@@ -110,13 +110,13 @@ export default function App() {
 
     const results = solveGrid(tempGrid, trie);
     setFoundWords(results);
-  };
+  }, [grid, trie, usedCells]);
 
   useEffect(() => {
     if (!isEditing && dictionaryLoaded) {
       runSolver();
     }
-  }, [isEditing, dictionaryLoaded, usedCells]);
+  }, [dictionaryLoaded, isEditing, runSolver]);
 
   // Interaction
   const getCellId = (r: number, c: number) => `${r},${c}`;
@@ -232,6 +232,8 @@ export default function App() {
   // Also support clicking a word in the list to "find" it automatically?
   // "give possible words...". Maybe clicking them highlights them?
   const highlightWord = (fw: FoundWord) => {
+      setHighlightedPath([]);
+      setHoveredWord(null);
       if (foundSelections.some(s => s.word === fw.word)) return;
       // Check if path is available
       const available = fw.path.every(p => !usedCells.has(getCellId(p.row, p.col)));
@@ -245,9 +247,18 @@ export default function App() {
       }
   };
 
+  const clearTransientSelection = () => {
+    setIsDragging(false);
+    setSelectedCells([]);
+    setLastSelected(null);
+    setHighlightedPath([]);
+    setHoveredWord(null);
+  };
+
   const resetGame = () => {
       setUsedCells(new Set());
       setFoundSelections([]);
+      clearTransientSelection();
   };
 
   return (
@@ -266,7 +277,11 @@ export default function App() {
                <h2 className="text-xl font-semibold">Grid</h2>
                <div className="space-x-2">
                  <button 
-                   onClick={() => setIsEditing(!isEditing)}
+                  onClick={() => {
+                    const next = !isEditing;
+                    setIsEditing(next);
+                    if (next) clearTransientSelection();
+                  }}
                    className="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded text-sm font-medium transition"
                  >
                    {isEditing ? "Done" : "Edit Grid"}
@@ -292,8 +307,43 @@ export default function App() {
             ) : (
               <div className="flex justify-center">
                 <div ref={gridWrapperRef} className="relative">
+                  <div
+                    className="grid gap-2 select-none"
+                    style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+                  >
+                    {grid.map((row, r) => (
+                      row.map((char, c) => {
+                        void char;
+                        const id = getCellId(r, c);
+                        const isUsed = usedCells.has(id);
+                        const isSelected = selectedCells.some(p => p.row === r && p.col === c);
+                        const isHighlighted = highlightedPath.some(p => p.row === r && p.col === c);
+
+                        return (
+                          <div
+                            key={id}
+                            className={cn(
+                              "w-12 h-12 rounded-full transition-all border-2 relative",
+                              isUsed
+                                ? "bg-gray-100 border-gray-100"
+                                : "bg-white border-gray-200",
+                              isSelected && "scale-110 shadow-lg z-20",
+                              !isSelected && isHighlighted && "bg-yellow-100 border-yellow-300 scale-105 z-10"
+                            )}
+                            style={
+                              isSelected
+                                ? { backgroundColor: currentSelectionColor, borderColor: currentSelectionColor }
+                                : undefined
+                            }
+                          >
+                          </div>
+                        );
+                      })
+                    ))}
+                  </div>
+
                   <svg
-                    className="absolute inset-0 pointer-events-none"
+                    className="absolute inset-0 pointer-events-none z-10"
                     width={overlayBox.width}
                     height={overlayBox.height}
                     viewBox={`0 0 ${overlayBox.width} ${overlayBox.height}`}
@@ -310,7 +360,7 @@ export default function App() {
                           strokeWidth={6}
                           strokeLinecap="round"
                           strokeLinejoin="round"
-                          opacity={0.85}
+                          opacity={0.5}
                         />
                       );
                     })}
@@ -327,7 +377,7 @@ export default function App() {
                             strokeLinecap="round"
                             strokeLinejoin="round"
                             strokeDasharray="10 8"
-                            opacity={0.9}
+                            opacity={0.5}
                           />
                         );
                       })()
@@ -344,7 +394,7 @@ export default function App() {
                             strokeWidth={8}
                             strokeLinecap="round"
                             strokeLinejoin="round"
-                            opacity={0.95}
+                            opacity={0.5}
                           />
                         );
                       })()
@@ -352,7 +402,7 @@ export default function App() {
                   </svg>
 
                   <div
-                    className="grid gap-2 select-none"
+                    className="absolute inset-0 grid gap-2 select-none z-20"
                     style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
                   >
                     {grid.map((row, r) => (
@@ -372,19 +422,12 @@ export default function App() {
                             onMouseDown={() => handleMouseDown(r, c)}
                             onMouseEnter={() => handleMouseEnter(r, c)}
                             className={cn(
-                              "w-12 h-12 flex items-center justify-center text-xl font-bold rounded-full transition-all cursor-pointer border-2 relative",
-                              isUsed
-                                ? "bg-gray-100 text-gray-300 border-gray-100"
-                                : "bg-white text-gray-800 border-gray-200 hover:border-blue-300",
-                              isSelected && "text-white scale-110 shadow-lg z-20",
-                              !isSelected && isHighlighted && "bg-yellow-100 border-yellow-300 text-yellow-800 scale-105 z-10",
-                              !isUsed && !isSelected && !isHighlighted && "hover:bg-blue-50"
+                              "w-12 h-12 flex items-center justify-center text-xl font-bold rounded-full transition-all cursor-pointer relative border-2 border-transparent",
+                              !isUsed && "hover:border-blue-300",
+                              isUsed ? "text-gray-300" : "text-gray-800",
+                              isSelected && "text-white scale-110 z-20",
+                              !isSelected && isHighlighted && "text-yellow-800 scale-105 z-10"
                             )}
-                            style={
-                              isSelected
-                                ? { backgroundColor: currentSelectionColor, borderColor: currentSelectionColor }
-                                : undefined
-                            }
                           >
                             {char}
                           </div>
@@ -415,25 +458,42 @@ export default function App() {
                <p className="text-gray-500 italic">No words found yet.</p>
            ) : (
                <ul className="space-y-2">
-                   {foundWords.map((fw, idx) => (
-                       <li key={idx} 
-                           className="group flex items-center justify-between p-2 hover:bg-gray-50 rounded cursor-pointer border border-transparent hover:border-gray-200 transition"
-                           onClick={() => highlightWord(fw)}
-                           onMouseEnter={() => {
-                             setHighlightedPath(fw.path);
-                             setHoveredWord(fw);
-                           }}
-                           onMouseLeave={() => {
-                             setHighlightedPath([]);
-                             setHoveredWord(null);
-                           }}
+                   {foundWords.map((fw, idx) => {
+                     const foundColor = getFoundSelectionColor(fw.word);
+                     return (
+                       <li
+                         key={idx}
+                         className={cn(
+                           "group flex items-center justify-between p-2 hover:bg-gray-50 rounded cursor-pointer border border-transparent hover:border-gray-200 transition",
+                           foundColor && "border"
+                         )}
+                         style={foundColor ? { borderColor: foundColor } : undefined}
+                         onClick={() => highlightWord(fw)}
+                         onMouseEnter={() => {
+                           setHighlightedPath(fw.path);
+                           setHoveredWord(fw);
+                         }}
+                         onMouseLeave={() => {
+                           setHighlightedPath([]);
+                           setHoveredWord(null);
+                         }}
                        >
+                         <span className="flex items-center gap-2">
+                           <span
+                             className={cn(
+                               "w-2.5 h-2.5 rounded-full border",
+                               foundColor ? "border-transparent" : "border-gray-300"
+                             )}
+                             style={foundColor ? { backgroundColor: foundColor } : undefined}
+                           />
                            <span className="font-mono font-medium text-lg text-gray-700">{fw.word}</span>
-                           <span className="text-xs text-gray-400 font-mono bg-gray-100 px-2 py-1 rounded">
-                               {fw.word.length} pts
-                           </span>
+                         </span>
+                         <span className="text-xs text-gray-400 font-mono bg-gray-100 px-2 py-1 rounded">
+                           {fw.word.length} pts
+                         </span>
                        </li>
-                   ))}
+                     );
+                   })}
                </ul>
            )}
         </div>
