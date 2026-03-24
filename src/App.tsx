@@ -205,7 +205,7 @@ export default function App() {
     }
   };
 
-  const handleMouseUp = () => {
+ const handleMouseUp = () => {
     if (isEditing) return;
     setIsDragging(false);
     
@@ -220,14 +220,41 @@ export default function App() {
     // Alternatively, check dictionary directly if we want to allow words not found by solver (unlikely if solver is complete)
     
     if (isValid) {
-      const newUsed = new Set(usedCells);
-      selectedCells.forEach(p => newUsed.add(getCellId(p.row, p.col)));
-      setUsedCells(newUsed);
-      setFoundSelections(prev => [...prev, { word, path: selectedCells, color: getStepColor(prev.length) }]);
+        const newUsed = new Set(usedCells);
+        selectedCells.forEach(p => newUsed.add(getCellId(p.row, p.col)));
+        setUsedCells(newUsed);
     }
     
     setSelectedCells([]);
     setLastSelected(null);
+  };
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (isEditing) return;
+    const touch = e.touches[0];
+    const element = document.elementFromPoint(touch.clientX, touch.clientY);
+    const cell = element?.closest('[data-cell="true"]');
+    
+    if (cell) {
+      const r = parseInt(cell.getAttribute('data-row') || '-1');
+      const c = parseInt(cell.getAttribute('data-col') || '-1');
+      if (r >= 0 && c >= 0) {
+        handleMouseDown(r, c);
+      }
+    }
+  };
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (isEditing || !isDragging) return;
+    const touch = e.touches[0];
+    const element = document.elementFromPoint(touch.clientX, touch.clientY);
+    const cell = element?.closest('[data-cell="true"]');
+    
+    if (cell) {
+      const r = parseInt(cell.getAttribute('data-row') || '-1');
+      const c = parseInt(cell.getAttribute('data-col') || '-1');
+      if (r >= 0 && c >= 0) {
+        handleMouseEnter(r, c);
+      }
+    }
   };
   
   // Also support clicking a word in the list to "find" it automatically?
@@ -263,7 +290,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-8 font-sans text-gray-900" onMouseUp={handleMouseUp}>
+    <div className="min-h-screen bg-gray-100 p-8 font-sans text-gray-900" onMouseUp={handleMouseUp} onTouchEnd={handleMouseUp}>
       <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
         
         {/* Left Column: Controls & Grid */}
